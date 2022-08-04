@@ -1,0 +1,141 @@
+name: Deploy Application
+
+# Define trigger
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# prepare app so its ready, compile css, js, and install composer dependencies
+jobs:
+  create-deployment-artifacts:
+    name: Create deployment artifacts
+    # runner
+    runs-on: ubuntu-latest
+    # let github see and use our deployment matrix
+    outputs:
+      deployment-matrix: ${{ steps.export-deployment-matrix.outputs.deployment-matrix }}
+    # use action provided by github
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Compile CSS and Javascript
+        # install npm dependencies, then compile css and js
+        run: |
+          npm install
+          npm run prod
+
+      # configure runner with right php version
+      - name: Configure PHP 8.1
+        uses: shivammathur/setup-php@master
+        with:
+          php-version: 8.1
+          extensions: mbstring, ctype, fileinfo, openssl, PDO, bcmath, json, tokenizer, xml
+
+      # install composer dependencies
+      - name: Install Composer Dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      # create archive of the entire app
+      - name: Create Deployment Artifact
+        # checkout documentation to see props we can reference on github
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: tar -czf "${GITHUB_SHA}".tar.gz --exclude=*.git --exclude=node_modules *
+      # identify each release, using a github hash action
+
+      # store artifact for distribution
+      - name: Store Artifact for Distribution
+        # github action to upload build artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: app-build
+          path: ${{ github.sha }}.tar.gz
+
+      # export deloyment matrix
+      - name: Export Deployment Matrix
+        id: export-deployment-matrix
+        run: |
+          JSON="$(cat ./deployment-config.json)"
+          JSON="${JSON//'%'/'%25'}"
+          JSON="${JSON//$'\n'/'%0A'}"
+          JSON="${JSON//$'\r'/'%0D'}"
+          echo "::set-output name=deployment-matrix::$JSON"
+
+  # prepare release on the server
+  release-on-server:
+    runs-on: ubuntu-latest
+    needs: create-deployment-artifacts
+    strategy:
+      matrix:
+        #think of matrix like an array
+        server: ${{ fromJson(needs.create-deployment-artifacts.outputs.deployment-matrix) }}
+      #steps for this job
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: app-build
+      # use repository secrets and SSH keys when in production
+      #upload files to server
+      - name: Upload File to Server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          port: ${{ secrets.PORT }}
+          key: ${{ secrets.KEY }}
+          # my thought is I can upload untar this file directly to the current or html folder without having to upload it on there, whats the point
+          source: ${{ github.sha }}.tar.gz
+          target: ${{ matrix.server.path }}/artifacts
+          # maybe philo is crazy, but in the blog he didnt add the xtra line // /var/www/html/artifacts, I didn't get the cannot found error after I removed this line
+
+      # extract it, so we have a release to actually work with
+      - name: Extract Archives & Create New Directories
+        # use appleboy action
+        uses: appleboy/ssh-action@master
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          LARAVEL_ENV: ${{ secrets.LARAVEL_ENV }}
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          envs: GITHUB_SHA,LARAVEL_ENV
+          # at this point files get extracted and placed on the releases folder * note this place *
+          # Share storage between different releases, we don't want to override server files, so we remove it from our release
+          script: |
+            tar xzf ${{ matrix.server.path }}/artifacts/${GITHUB_SHA}.tar.gz -C "${{ matrix.server.path }}/html"
+
+            chmod -R 777 ${{ matrix.server.path }}/html/public/files 
+
+            printf "%s" "$LARAVEL_ENV" > "${{ matrix.server.path }}/html/.env"
+            cd ${{ matrix.server.path }}/html && php artisan migrate && php artisan storage:link && php artisan view:clear && php artisan cache:clear && php artisan config:clear
+
+            service php8.1-fpm reload
+
+  # clean up artifacts, keep it at 5 artifacts always
+  clean-up:
+    name: "${{ matrix.server.name }}: Clean up"
+    runs-on: ubuntu-latest
+    needs: [create-deployment-artifacts, release-on-server]
+    strategy:
+      matrix:
+        server: ${{ fromJson(needs.create-deployment-artifacts.outputs.deployment-matrix) }}
+    steps:
+      - name: Clean Up
+        uses: appleboy/ssh-action@master
+        env:
+          ARTIFACTS_PATH: ${{ matrix.server.path }}/artifacts
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: ${{ secrets.PORT }}
+          envs: ARTIFACTS_PATH
+          # use tail command to offset list by 5 and return any rem dirs
+          script: |
+            cd $ARTIFACTS_PATH && ls -t -1 | tail -n +6 | xargs rm -rf
