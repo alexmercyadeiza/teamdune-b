@@ -14,5 +14,5 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', function () {
-    return view('welcome');
+    return response(['message' => 'Join our team. Shoot us an email: dev@teamdune.pro'], 200);
 });

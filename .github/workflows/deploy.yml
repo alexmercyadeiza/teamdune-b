@@ -109,6 +109,8 @@ jobs:
           script: |
             tar xzf ${{ matrix.server.path }}/artifacts/${GITHUB_SHA}.tar.gz -C "${{ matrix.server.path }}/html"
 
+            rm -rf ${{ matrix.server.path }}/html/storage 
+            ln -s -f ${{ matrix.server.path }}/storage ${{ matrix.server.path }}/html
             chmod -R 777 ${{ matrix.server.path }}/html/public/files 
 
             printf "%s" "$LARAVEL_ENV" > "${{ matrix.server.path }}/html/.env"
