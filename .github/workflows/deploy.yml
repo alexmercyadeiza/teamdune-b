@@ -26,7 +26,6 @@ jobs:
         # install npm dependencies, then compile css and js
         run: |
           npm install
-          npm run prod
 
       # configure runner with right php version
       - name: Configure PHP 8.1
