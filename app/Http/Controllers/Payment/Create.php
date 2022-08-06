@@ -392,4 +392,25 @@ class Create extends Controller
 
         return response(['status' => 'success', 'message' => 'Transaction completed successfully.'], 200);
     }
+
+    /**
+     * Get payment links
+     */
+    public function getPaymentLinks(Request $request, $id) {
+        /**
+         * Check if key is passed as part of request headers
+         */
+        if (!$request->hasHeader('dune-sec-key')) {
+            return response(['status' => 'failed', 'message' => 'Application secret key is required.'], 401);
+        }
+
+        /**
+         * Check if key exists in the access_keys db table
+         */
+        if (!SecretKeys::where('key', $request->header('dune-sec-key'))->exists()) {
+            return response(['status' => 'failed', 'message' => 'Application secret key is invalid.'], 401);
+        }
+        
+        return response(['message' => 'success', 'data' => Links::where('merchant_id', $id)->get()], 200);
+    }
 }
