@@ -25,4 +25,4 @@ Route::post('/pay/authorize/one', [Create::class, 'authorizePayment']);
 Route::post('/pay/authorize/two', [Create::class, 'paymentTypeTwo']);
 Route::post('/create/app/key', [SecretKey::class, 'createSecretKey']);
 // Route::get('/pay/get/{id}', [Create::class, 'getPaymentLink']);
-Route::get('/pay/links/1', [Create::class, 'getPaymentLinks']);
+Route::get('/pay/links/{id}', [Create::class, 'getPaymentLinks']);
