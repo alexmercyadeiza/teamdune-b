@@ -49,14 +49,16 @@ class Create extends Controller
 
         $request->validate([
             'amount' => 'required|integer',
-            'merchant_id' => 'required',
+            // 'merchant_id' => 'required',
         ]);
+
+        $mer = SecretKeys::where('key', $request->header('dune-sec-key'))->first();
 
         $id = substr(md5(time()), 0, 10);
 
         Links::create([
             'pay_id' => $id,
-            'merchant_id' => $request->merchant_id,
+            'merchant_id' => $mer->merchant_id,
             'amount' => $request->amount,
             'redirect_url' => $request->redirect_url ?? '',
             'desc' => $request->desc ?? '',
